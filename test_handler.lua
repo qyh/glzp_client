@@ -36,7 +36,7 @@ end
 ]]
 
 function REQUEST:notifyChallengePlayerChange(args)
-	logger.err('notifyChallengePlayerChange:%s', futil.toStr(args))
+	logger.debug('notifyChallengePlayerChange:%s', futil.toStr(args))
 end
 function REQUEST:sendInfo(args)
 	logger.info("sendInfo:%s", futil.toStr(args.info))
@@ -239,17 +239,27 @@ function handler:challengeSignIn(challengeId)
 				logger.err('%s 费用不足，退出', userInfo.nickName)
 				skynet.exit()
 				break
+			elseif rv.errCode == ec.INVALID_STATE then
+				local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=challengeId})
+				if not ok then
+					logger.err('keepStage failed:%s', futil.toStr(rv))
+				else
+					logger.debug('keepStage:%s', futil.toStr(rv))
+				end
 			else
 				logger.err('challengeSignIn failed:%s', futil.toStr(rv))
 				self.isSignIn = false
 			end
-		end	
+		end
 		skynet.sleep(200)
 	end
 	local function check()
 		local curTime = os.time()
 		if self.isSignIn and (curTime - self.signInTime > 5) and (self.gameStart == false) then
 			logger.err('user %s signIn but over %s sec not start', userInfo.nickName, curTime - self.signInTime)
+			if curTime - self.signInTime > 60 then
+				return handler:challengeSignIn(challengeId)			
+			end
 		end
 
 		if self.isSignIn and (self.gameStart == false) then
@@ -319,6 +329,12 @@ function handler:run()
 		if ok then
 			logger.warn('playerStatus:%s', futil.toStr(rv))
 			if rv.roomType == 8 then
+
+				local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+					h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
+				if ok then
+					self.challengeId = seasonInfo.seasonMessage[1].challengeId
+				end
 				local _, data = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0,
 					h.enumKeyAction.COME_BACK_GAME, 'comeBackGame')
 				if data and next(data) then
