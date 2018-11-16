@@ -43,6 +43,7 @@ function REQUEST:sendInfo(args)
 	logger.info("userInfo:%s", futil.toStr(userInfo))
 	logger.debug('user %s game start', userInfo.nickName)
 	self.gameStart = true
+	skynet.call('.test_many_client', 'lua', 'gaming', self.id, true)
 	for k, v in pairs(args.info) do
 		if v.userID == userInfo.userID then
 			deskInfo = {}
@@ -174,6 +175,7 @@ end
 
 function REQUEST:settlement(args)
 	logger.debug('settlement:%s', futil.toStr(args))
+	skynet.call('.test_many_client', 'lua', 'gaming', self.id, false)
 	self.gameStart = false
 	self.isSignIn = false
 	skynet.sleep(100)
@@ -358,6 +360,7 @@ function handler:run()
 					logger.warn('comeBackGame:%s', futil.toStr(data))
 					local ok, r = pcall(json.decode, data.strData)
 					if ok then
+						skynet.call('.test_many_client', 'lua', 'gaming', self.id, true)
 						self.agentId = tonumber(r.selfID)
 						self.gameStart = true
 						self.isSignIn = true

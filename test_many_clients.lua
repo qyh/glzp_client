@@ -9,7 +9,8 @@ local start_interval = tonumber(skynet.getenv("start_interval")) or 10
 local test_opt = skynet.getenv("test_opt")
 local clients = {}
 assert(serveraddr, "serveraddr should not be nil")
-
+local CMD = {}
+local inGame = {}
 
 local user_params = {} --备份某个机器人id与其对应的参数,在重新恢复时用
 
@@ -64,6 +65,25 @@ local function main()
 		end
 		skynet.sleep(30*100)
 	end
+end
+
+function CMD.gaming(id, flag)
+	inGame[id] = flag
+	local playCount = 0
+	local notPlayCount = 0
+	for k, v in pairs(inGame) do
+		if v == true then
+			playCount = playCount + 1
+		else
+			notPlayCount = notPlayCount + 1
+		end
+	end
+	local total = 0
+	for k, v in pairs(clients) do
+		total = total + 1
+	end
+	logger.warn('playing count:%s, not playing count:%s, total:%s', 
+		playCount, notPlayCount, total)
 end
 
 skynet.start(function ()
