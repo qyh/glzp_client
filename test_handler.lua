@@ -153,9 +153,9 @@ function REQUEST:notifySelect(args)
 				or v == gd.ACT_PRI.OPEN_GEST_H or v == gd.ACT_PRI.OPEN_GEST_D_F 
 				or v == gd.ACT_PRI.OPEN_GEST_D_B then
 				actionId = v
-				for k, v in pairs(deskInfo.handCards) do
-					if v == cardId then
-						table.remove(deskInfo.handCards, k)
+				for id, num in pairs(deskInfo.handCards) do
+					if id == cardId then
+						deskInfo.handCards[id] = 0
 					end
 				end
 			end
