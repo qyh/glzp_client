@@ -276,7 +276,9 @@ function handler:challengeSignIn(challengeId)
 		if self.isSignIn and (curTime - self.signInTime > 5) and (self.gameStart == false) then
 			logger.err('user %s signIn but over %s sec not start', userInfo.nickName, curTime - self.signInTime)
 			if curTime - self.signInTime > 900 then
-				return handler:challengeSignIn(challengeId)			
+				logger.err('%s exit', userInfo.nickName)
+				--it will be restart after 30s
+				skynet.exit()
 			end
 		end
 
