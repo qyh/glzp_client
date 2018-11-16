@@ -74,9 +74,14 @@ end
 function REQUEST:setHandCards(args)
 	logger.info('setHandCards:%s', futil.toStr(args))
 	local handCards = args.handCards
-	deskInfo.handCards = handCards
-	for k, v in pairs(handCards) do
+	deskInfo.handCards = {} 
+	for i=1, 21 do
+		deskInfo[i] = 0
 	end
+	for k, v in pairs(handCards) do
+		deskInfo.handCards[v] = (deskInfo.handCards[v] or 0) + 1
+	end
+	logger.info('sorted handCards:%s', futil.toStr(deskInfo.handCards))
 end
 
 function REQUEST:doPlayCard(args)
@@ -97,23 +102,34 @@ function REQUEST:notifyPlayCard(args)
 	logger.debug('cur handCards:%s', futil.toStr(deskInfo.handCards))
 	deskInfo.msgTag = args.msgTag
 	local succ = false
-	for k, cardID in pairs(deskInfo.handCards) do
-		local ok, rv = handler:playCard({
-			cardId = cardID,
-			msgTag = deskInfo.msgTag,
-			deskID = deskInfo.deskID,
-		})
-		if ok then
-			if rv.isLegal ~= 0 then
-				logger.debug('playCard res:%s', futil.toStr(rv))
-				succ = true
-				table.remove(deskInfo.handCards, k)
-				break
-			else
-				logger.warn('playCard res:%s', futil.toStr(rv))
+	local tmpNum = 0 
+	while not succ do
+		tmpNum = tmpNum + 1
+		if tmpNum > 3 then
+			break
+		end
+		--优先出只有一张的牌，再出2，3张的。。
+		for cardID, num in pairs(deskInfo.handCards) do
+			if num == tmpNum then
+				local ok, rv = handler:playCard({
+					cardId = cardID,
+					msgTag = deskInfo.msgTag,
+					deskID = deskInfo.deskID,
+				})
+				if ok then
+					if rv.isLegal ~= 0 then
+						logger.debug('playCard res:%s', futil.toStr(rv))
+						succ = true
+						--table.remove(deskInfo.handCards, k)
+						deskInfo.handCards[cardID] = deskInfo.handCards[cardID] - 1
+						break
+					else
+						logger.warn('playCard res:%s', futil.toStr(rv))
+					end
+				else
+					logger.err('playCard res:%s', futil.toStr(rv))
+				end
 			end
-		else
-			logger.err('playCard res:%s', futil.toStr(rv))
 		end
 	end
 end
@@ -315,6 +331,7 @@ function handler:kclub_test()
 		end
 	end
 end
+
 function handler:run()
     local ctx = self.ctx
 
@@ -344,6 +361,25 @@ function handler:run()
 						self.agentId = tonumber(r.selfID)
 						self.gameStart = true
 						self.isSignIn = true
+						local agentID = r.agentID
+						deskInfo.handCards = {}
+						local tmpHandCards = {}
+						deskInfo.deskID = r.desk_info.deskID
+						for k, v in pairs(r.agents) do
+							if agentID == v.agentID then
+								deskInfo.handCards = v.handCards
+								--[[
+								for idx, num in pairs(v.handCards) do
+									local n = num 
+									while n > 0 do
+										table.insert(deskInfo.handCards, idx)
+										n = n - 1
+									end
+								end
+								]]
+							end
+						end
+						logger.info('reconnect handCards:%s', futil.toStr(deskInfo.handCards))
 						logger.debug('agentId:%s', self.agentId)
 					else
 						logger.err('json decode failed')
