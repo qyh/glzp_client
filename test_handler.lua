@@ -133,6 +133,11 @@ function REQUEST:notifyPlayCard(args)
 			end
 		end
 	end
+	if succ then
+		logger.debug('out card success')
+	else
+		logger.err('out card failed')
+	end
 end
 
 function REQUEST:notifySelect(args)
