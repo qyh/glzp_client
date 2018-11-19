@@ -155,7 +155,7 @@ function REQUEST:notifySelect(args)
 				actionId = v
 				for id, num in pairs(deskInfo.handCards) do
 					if id == cardId then
-						deskInfo.handCards[id] = 0
+						deskInfo.handCards[id] = deskInfo.handCards[id] + 1
 					end
 				end
 			end
@@ -235,6 +235,7 @@ function REQUEST:settlement(args)
 			self:challengeSignIn(self.challengeId)	
 		else
 			logger.debug('keepChallengeStage:%s', futil.toStr(rv))
+			self:challengeSignIn(self.challengeId)	
 		end
 	end
 end
