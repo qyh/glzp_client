@@ -184,9 +184,11 @@ function REQUEST:settlement(args)
 	self.gameStart = false
 	self.isSignIn = false
 	skynet.sleep(100)
+	local goldChange = 0
 	for k, v in pairs(args.agentInfo) do
 		if v.agentId == self.agentId then
 			userInfo.winCount = v.winInfo
+			goldChange = v.goldChange
 			logger.debug('goldCoin:%s, goldChange:%s', v.goldCoin, v.goldChange)
 		end
 	end
@@ -204,6 +206,7 @@ function REQUEST:settlement(args)
 		})
 	end
 	]]
+	skynet.sleep(100)
 	if args.huAgentId == self.agentId then
 		logger.debug('user:%s win:%s', userInfo.nickName,userInfo.winCount)
 		if userInfo.winCount >= 8 then
@@ -227,8 +230,7 @@ function REQUEST:settlement(args)
 				end
 			end
 		end
-	else
-		skynet.sleep(100)
+	elseif goldChange < 0 then
 		logger.debug('user:%s lose winCount:%s', userInfo.nickName,userInfo.winCount)
 		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=self.challengeId})
 		if not (ok and rv and next(rv) and rv.result == 0) then
@@ -237,6 +239,9 @@ function REQUEST:settlement(args)
 			logger.debug('keepChallengeStage:%s', futil.toStr(rv))
 			self:challengeSignIn(self.challengeId)	
 		end
+	else
+		logger.debug('user:%s not lose and not win, winCount:%s', userInfo.nickName,userInfo.winCount)
+		self:challengeSignIn(self.challengeId)	
 	end
 end
 
