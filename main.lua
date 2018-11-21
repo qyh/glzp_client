@@ -5,6 +5,7 @@ local json = require "json"
 require "skynet.manager"
 
 skynet.start(function()
+	skynet.newservice('logservice')
 	skynet.newservice("test_many_clients")
 	logger.info("client started")
 	skynet.exit()

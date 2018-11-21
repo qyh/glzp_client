@@ -40,6 +40,10 @@ function futil.now()
 	return os.date("%Y-%m-%d %H:%M:%S", os.time())
 end
 
+-- t is return by os.time()
+function futil.dayStr(t)
+	return os.date("%Y%m%d", t or os.time())
+end
 function futil.now_date(time)
 	return os.date("%Y-%m-%d", os.time())
 end
