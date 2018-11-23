@@ -34,7 +34,15 @@ function REQUEST:user_info(args)
 
 end
 ]]
-
+function REQUEST:challengePassRecordStart(args)
+	logger.warn('challengePassRecordStart:%s', futil.toStr(args))
+end
+function REQUEST:challengePassRecord(args)
+	logger.warn('challengePassRecord count:%s', #args.passRecord)
+end
+function REQUEST:challengePassRecordEnd(args)
+	logger.warn('challengePassRecordEnd:%s', futil.toStr(args))
+end
 function REQUEST:notifyChallengePlayerChange(args)
 	logger.debug('notifyChallengePlayerChange:%s', futil.toStr(args))
 end
@@ -313,6 +321,27 @@ function handler:test_win()
 	logger.debug('challengeInfo:%s', futil.toStr(seasonInfo))
 	if not self.isSignIn then 
 		for k, v in pairs(seasonInfo.seasonMessage) do
+			---4.0 内容
+			local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+			h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
+			if ok then
+				logger.warn('myChallengeRecord,count:%s', #record.challengeRecords)
+			else
+				logger.err('myChallengeRecord: failed')
+			end
+			local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+			h.enumKeyAction.REQ_MY_PASS_RECORD, 'requestMyPassRecord', {challengeId = v.challengeId})
+			if ok then
+				logger.warn('myPassRecord:%s', futil.toStr(record))
+			else
+				logger.err('myPassRecord: failed')
+			end
+			local ok,rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+			h.enumKeyAction.REQ_PASS_RECORD, 'requestPassRecord', {challengeId = v.challengeId}, true)
+			if not ok then
+				logger.err('requestPassRecord failed')
+			end
+			---4.0 内容 end
 			if self:challengeSignIn(v.challengeId) then
 				break
 			else
