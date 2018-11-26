@@ -310,43 +310,67 @@ function handler:challengeSignIn(challengeId)
 	check()
 	return suc 
 end
+function handler:getChallengeInfo()
+	local succ = false
+	local rv = nil
+	tryTimes = 0
+	while not succ do
+		local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+			h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
+		if not ok then
+			logger.err('getChallengeInfo failed')
+		end
+		if seasonInfo and next(seasonInfo) and seasonInfo.result == 0 then
+			self.challengeId = seasonInfo.seasonMessage[1].challengeId
+			succ = true
+			rv = seasonInfo.seasonMessage[1]
+			break
+		else
+			logger.err('getChallengeInfo failed:%s', futil.toStr(seasonInfo))
+		end
+		tryTimes = tryTimes + 1
+		if tryTimes > 5 then
+			break
+		end
+		logger.err('try getChallengeInfo again...')
+		skynet.sleep(100)
+	end
+	return succ, rv
+end
 function handler:test_win()
 	local userInfo = self.auth.userInfo_
-	local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-		h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
+	local ok, seasonInfo = self:getChallengeInfo()
 	if not ok then
-		logger.err('getChallengeInfo failed')
 		return false
 	end
 	logger.debug('challengeInfo:%s', futil.toStr(seasonInfo))
 	if not self.isSignIn then 
-		for k, v in pairs(seasonInfo.seasonMessage) do
-			---4.0 内容
-			local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-			h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
-			if ok then
-				logger.warn('myChallengeRecord,count:%s', #record.challengeRecords)
-			else
-				logger.err('myChallengeRecord: failed')
-			end
-			local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-			h.enumKeyAction.REQ_MY_PASS_RECORD, 'requestMyPassRecord', {challengeId = v.challengeId})
-			if ok then
-				logger.warn('myPassRecord:%s', futil.toStr(record))
-			else
-				logger.err('myPassRecord: failed')
-			end
-			local ok,rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-			h.enumKeyAction.REQ_PASS_RECORD, 'requestPassRecord', {challengeId = v.challengeId}, true)
-			if not ok then
-				logger.err('requestPassRecord failed')
-			end
-			---4.0 内容 end
-			if self:challengeSignIn(v.challengeId) then
-				break
-			else
-				logger.err('challengeSignIn failed')
-			end
+		local v = seasonInfo
+		---4.0 内容
+		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+		h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
+		if ok then
+			logger.warn('myChallengeRecord,count:%s', #record.challengeRecords)
+		else
+			logger.err('myChallengeRecord: failed')
+		end
+		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+		h.enumKeyAction.REQ_MY_PASS_RECORD, 'requestMyPassRecord', {challengeId = v.challengeId})
+		if ok then
+			logger.warn('myPassRecord:%s', futil.toStr(record))
+		else
+			logger.err('myPassRecord: failed')
+		end
+		local ok,rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+		h.enumKeyAction.REQ_PASS_RECORD, 'requestPassRecord', {challengeId = v.challengeId}, true)
+		if not ok then
+			logger.err('requestPassRecord failed')
+		end
+		---4.0 内容 end
+		if self:challengeSignIn(v.challengeId) then
+			return
+		else
+			logger.err('challengeSignIn failed')
 		end
 	end
 end
@@ -391,10 +415,9 @@ function handler:run()
 			logger.warn('playerStatus:%s', futil.toStr(rv))
 			if rv.roomType == 8 then
 
-				local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-					h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
+				local ok, seasonInfo = self:getChallengeInfo() 
 				if ok then
-					self.challengeId = seasonInfo.seasonMessage[1].challengeId
+					self.challengeId = seasonInfo.challengeId
 				end
 				local _, data = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0,
 					h.enumKeyAction.COME_BACK_GAME, 'comeBackGame')
