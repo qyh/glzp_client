@@ -55,9 +55,17 @@ end
 function handler:login(param)
 	local cl = self.cl
 	local openid = string.format("robot%s", self.id)
+	local password = '123456'
+
+	if param.account then
+		openid = param.account
+	end
+	if param.password then
+		password = param.password
+	end
 	local data = {
 		userName = openid,
-		thirdToken = '123456',
+		thirdToken = password,
 		thirdPlatformID = h.thirdPlatformID.Zipai,
 		version = param.appver,
 		deviceID = h.deviceID.PC,

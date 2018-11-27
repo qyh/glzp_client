@@ -274,8 +274,12 @@ function handler:challengeSignIn(challengeId)
 			elseif rv.errCode == ec.GOLD_NOT_ENOUGH or 
 				rv.errCode == ec.GOLD_LIMIT or rv.errCode == ec.ITEM_NOT_ENOUGH then
 				logger.err('%s 费用不足，退出', userInfo.nickName)
-				skynet.exit()
-				break
+				if not self:useRedeemCode("1213") then    --内网兑换码
+					if not self:useRedeemCode("987") then --beta兑换码
+						skynet.exit()
+						break
+					end
+				end
 			elseif rv.errCode == ec.INVALID_STATE then
 				local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=challengeId})
 				if not ok then
@@ -309,6 +313,19 @@ function handler:challengeSignIn(challengeId)
 	end
 	check()
 	return suc 
+end
+function handler:useRedeemCode(code)
+	local data = {
+		redeemCode = code	
+	}
+	local ok, rv = pcall(self.request, self, h.enumEndPoint.LOBBY_SERVER,0, h.enumKeyAction.USE_REDEEM_CODE, 'useRedeemCode', data)
+	if ok and rv and next(rv) and rv.result == 0 then
+		logger.warn('useRedeemCode success:%s', futil.toStr(rv))
+	else
+		logger.err('useRedeemCode error:%s', futil.toStr(rv))
+		ok = false
+	end
+	return ok
 end
 function handler:getChallengeInfo()
 	local succ = false
@@ -347,6 +364,7 @@ function handler:test_win()
 	if not self.isSignIn then 
 		local v = seasonInfo
 		---4.0 内容
+		--[[
 		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
 		h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
 		if ok then
@@ -366,6 +384,7 @@ function handler:test_win()
 		if not ok then
 			logger.err('requestPassRecord failed')
 		end
+		]]
 		---4.0 内容 end
 		if self:challengeSignIn(v.challengeId) then
 			return
