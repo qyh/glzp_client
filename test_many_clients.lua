@@ -34,36 +34,45 @@ local function get_client_stat(clients)
 	return alive_clients, dead_clients
 end
 
+local function handle_error(e)
+	return debug.traceback(coroutine.running(), tostring(e), 2)
+end
 local function main()
-	assert(test_opt)
-    local opt = require (test_opt)
+	local function f()
+		assert(test_opt)
+		local opt = require (test_opt)
 
-    assert(opt)
-    for _, item in pairs(opt) do
-        for i = item["startid"], item["endid"] do
-            local param = item["param"] or {}
-            local test_handler = item["handler"]
-            user_params[i] = {param = param, handler = test_handler}
-            clients[i] = new_client(i, test_handler, json.encode(param))
-            skynet.sleep(start_interval)
-        end
-    end
-
-	while true do
-		local _, dead_clients = get_client_stat(clients)
-        if #dead_clients > 0 then
-            logger.info("dead_clients count = %s", #dead_clients)
-        end
-		for _, i in ipairs(dead_clients) do
-			logger.info("restart dead client: %s", i)
-            local param = user_params[i].param
-            local handler = user_params[i].handler
-            assert(param)
-            assert(handler)
-			clients[i] = new_client(i, handler, json.encode(param))
-			skynet.sleep(start_interval)
+		assert(opt)
+		for _, item in pairs(opt) do
+			for i = item["startid"], item["endid"] do
+				local param = item["param"] or {}
+				local test_handler = item["handler"]
+				user_params[i] = {param = param, handler = test_handler}
+				clients[i] = new_client(i, test_handler, json.encode(param))
+				skynet.sleep(start_interval)
+			end
 		end
-		skynet.sleep(30*100)
+
+		while true do
+			local _, dead_clients = get_client_stat(clients)
+			if #dead_clients > 0 then
+				logger.info("dead_clients count = %s", #dead_clients)
+			end
+			for _, i in ipairs(dead_clients) do
+				logger.info("restart dead client: %s", i)
+				local param = user_params[i].param
+				local handler = user_params[i].handler
+				assert(param)
+				assert(handler)
+				clients[i] = new_client(i, handler, json.encode(param))
+				skynet.sleep(start_interval)
+			end
+			skynet.sleep(30*100)
+		end
+	end
+	local ok, rv = xpcall(f, handle_error)
+	if not ok then
+		logger.err('%s', tostring(rv))
 	end
 end
 

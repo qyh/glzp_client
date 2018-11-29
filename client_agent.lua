@@ -16,6 +16,9 @@ local is_encrypt = tonumber(skynet.getenv("is_encrypt")) or 0
 is_encrypt = is_encrypt ~= 0 and true or false
 local key_secret = skynet.getenv("key_secret")
 
+local function handle_error(e)
+	return debug.traceback(coroutine.running(), tostring(e), 2)
+end
 
 local function start()
 	-- open client
@@ -25,7 +28,12 @@ local function start()
 		logger.warn("open client fail, id = %s", id)
 		return skynet.exit() 
 	end
-	client_handler:main(id, cl, param)
+
+	local ok, rv = xpcall(client_handler.main, handle_error, client_handler, id, cl, param)
+	if not ok then
+		logger.err('%s', tostring(rv))
+	end
+	--client_handler:main(id, cl, param)
 	return true
 end
 

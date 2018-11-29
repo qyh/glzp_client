@@ -34,7 +34,15 @@ function REQUEST:user_info(args)
 
 end
 ]]
-
+function REQUEST:challengePassRecordStart(args)
+	logger.warn('challengePassRecordStart:%s', futil.toStr(args))
+end
+function REQUEST:challengePassRecord(args)
+	logger.warn('challengePassRecord count:%s', #args.passRecord)
+end
+function REQUEST:challengePassRecordEnd(args)
+	logger.warn('challengePassRecordEnd:%s', futil.toStr(args))
+end
 function REQUEST:notifyChallengePlayerChange(args)
 	logger.debug('notifyChallengePlayerChange:%s', futil.toStr(args))
 end
@@ -266,8 +274,12 @@ function handler:challengeSignIn(challengeId)
 			elseif rv.errCode == ec.GOLD_NOT_ENOUGH or 
 				rv.errCode == ec.GOLD_LIMIT or rv.errCode == ec.ITEM_NOT_ENOUGH then
 				logger.err('%s 费用不足，退出', userInfo.nickName)
-				skynet.exit()
-				break
+				if not self:useRedeemCode("1213") then    --内网兑换码
+					if not self:useRedeemCode("987") then --beta兑换码
+						skynet.exit()
+						break
+					end
+				end
 			elseif rv.errCode == ec.INVALID_STATE then
 				local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=challengeId})
 				if not ok then
@@ -302,22 +314,94 @@ function handler:challengeSignIn(challengeId)
 	check()
 	return suc 
 end
+function handler:useRedeemCode(code)
+	local data = {
+		redeemCode = code	
+	}
+	local ok, rv = pcall(self.request, self, h.enumEndPoint.LOBBY_SERVER,0, h.enumKeyAction.USE_REDEEM_CODE, 'useRedeemCode', data)
+	if ok and rv and next(rv) and rv.result == 0 then
+		logger.warn('useRedeemCode success:%s', futil.toStr(rv))
+	else
+		logger.err('useRedeemCode error:%s', futil.toStr(rv))
+		ok = false
+	end
+	return ok
+end
+function handler:getChallengeInfo()
+	local succ = false
+	local rv = nil
+	tryTimes = 0
+	while not succ do
+		local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+			h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
+		if not ok then
+			logger.err('getChallengeInfo failed')
+		end
+		if seasonInfo and next(seasonInfo) and seasonInfo.result == 0 and seasonInfo.seasonMessage then
+			self.challengeId = seasonInfo.seasonMessage[1].challengeId
+			succ = true
+			rv = seasonInfo.seasonMessage[1]
+			break
+		else
+			logger.err('getChallengeInfo failed:%s', futil.toStr(seasonInfo))
+		end
+		tryTimes = tryTimes + 1
+		if tryTimes > 5 then
+			break
+		end
+		logger.err('try getChallengeInfo again...')
+		skynet.sleep(100)
+	end
+	return succ, rv
+end
 function handler:test_win()
 	local userInfo = self.auth.userInfo_
-	local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-		h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
+	local ok, seasonInfo = self:getChallengeInfo()
 	if not ok then
-		logger.err('getChallengeInfo failed')
 		return false
 	end
 	logger.debug('challengeInfo:%s', futil.toStr(seasonInfo))
 	if not self.isSignIn then 
-		for k, v in pairs(seasonInfo.seasonMessage) do
-			if self:challengeSignIn(v.challengeId) then
-				break
-			else
-				logger.err('challengeSignIn failed')
+		local v = seasonInfo
+		---4.0 内容
+		--[[
+		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+		h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
+		if ok then
+			--logger.warn('myChallengeRecord,count:%s', futil.toStr(record))
+			if record.challengeRecords then
+				for k, v in pairs(record.challengeRecords) do
+					logger.err('%s', futil.toStr(v))
+				end
 			end
+		else
+			logger.err('myChallengeRecord: failed')
+		end
+		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+		h.enumKeyAction.REQ_MY_PASS_RECORD, 'requestMyPassRecord', {challengeId = v.challengeId})
+		if ok then
+			logger.warn('myPassRecord:%s', futil.toStr(record))
+		else
+			logger.err('myPassRecord: failed')
+		end
+		local ok,rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+		h.enumKeyAction.REQ_PASS_RECORD, 'requestPassRecord', {challengeId = v.challengeId}, true)
+		if not ok then
+			logger.err('requestPassRecord failed')
+		end
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0,
+		h.enumKeyAction.REQ_MY_CHALLENGE_INFO, 'requestMyChallengeInfo', {challengeId = v.challengeId})
+		if not ok then
+			logger.err('request my challenge info failed')
+		else
+			logger.warn('mychallenge info:%s', futil.toStr(rv))
+		end
+		]]
+		---4.0 内容 end
+		if self:challengeSignIn(v.challengeId) then
+			return
+		else
+			logger.err('challengeSignIn failed')
 		end
 	end
 end
@@ -362,10 +446,9 @@ function handler:run()
 			logger.warn('playerStatus:%s', futil.toStr(rv))
 			if rv.roomType == 8 then
 
-				local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-					h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
+				local ok, seasonInfo = self:getChallengeInfo() 
 				if ok then
-					self.challengeId = seasonInfo.seasonMessage[1].challengeId
+					self.challengeId = seasonInfo.challengeId
 				end
 				local _, data = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0,
 					h.enumKeyAction.COME_BACK_GAME, 'comeBackGame')
