@@ -337,7 +337,7 @@ function handler:getChallengeInfo()
 		if not ok then
 			logger.err('getChallengeInfo failed')
 		end
-		if seasonInfo and next(seasonInfo) and seasonInfo.result == 0 then
+		if seasonInfo and next(seasonInfo) and seasonInfo.result == 0 and seasonInfo.seasonMessage then
 			self.challengeId = seasonInfo.seasonMessage[1].challengeId
 			succ = true
 			rv = seasonInfo.seasonMessage[1]
@@ -368,7 +368,12 @@ function handler:test_win()
 		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
 		h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
 		if ok then
-			logger.warn('myChallengeRecord,count:%s', #record.challengeRecords)
+			--logger.warn('myChallengeRecord,count:%s', futil.toStr(record))
+			if record.challengeRecords then
+				for k, v in pairs(record.challengeRecords) do
+					logger.err('%s', futil.toStr(v))
+				end
+			end
 		else
 			logger.err('myChallengeRecord: failed')
 		end
@@ -383,6 +388,13 @@ function handler:test_win()
 		h.enumKeyAction.REQ_PASS_RECORD, 'requestPassRecord', {challengeId = v.challengeId}, true)
 		if not ok then
 			logger.err('requestPassRecord failed')
+		end
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0,
+		h.enumKeyAction.REQ_MY_CHALLENGE_INFO, 'requestMyChallengeInfo', {challengeId = v.challengeId})
+		if not ok then
+			logger.err('request my challenge info failed')
+		else
+			logger.warn('mychallenge info:%s', futil.toStr(rv))
 		end
 		]]
 		---4.0 内容 end
