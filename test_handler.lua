@@ -263,7 +263,7 @@ function handler:challengeSignIn(challengeId)
 		if not ok then
 			logger.err('call challenge sign in error')
 		else
-			if rv.errCode == 0 then
+			if rv.errCode == 0 and rv.errMsg == "OK" then
 				logger.warn('challengeSignIn:%s', futil.toStr(rv))
 				self.challengeId = challengeId
 				self.isSignIn = true
