@@ -16,6 +16,7 @@ local userInfo
 local deskInfo = {}
 local REQUEST = handler.__request
 local RESPONSE = handler.__response
+local balanceCo = nil
 --[[
 function REQUEST:user_info(args)
     logger.debug("REQUEST:user_info %s", futil.toStr(args))
@@ -185,7 +186,13 @@ end
 function REQUEST:doAction(args)
 	logger.debug('doAction:%s', futil.toStr(args))
 end
-
+function REQUEST:notifyProtectSteps(args)
+	logger.warn('notifyProtectSteps:%s', futil.toStr(args))
+	if balanceCo then
+		skynet.wakeup(balanceCo)
+		balanceCo = nil
+	end
+end
 function REQUEST:settlement(args)
 	logger.debug('settlement:%s', futil.toStr(args))
 	skynet.call('.test_many_client', 'lua', 'gaming', self.id, false)
@@ -214,7 +221,14 @@ function REQUEST:settlement(args)
 		})
 	end
 	]]
-	skynet.sleep(100)
+	balanceCo = coroutine.running()
+	skynet.timeout(1000, function()
+		if balanceCo then
+			skynet.wakeup(balanceCo)	
+			balanceCo = nil
+		end
+	end)
+	skynet.wait()
 	if args.huAgentId == self.agentId then
 		logger.debug('user:%s win:%s', userInfo.nickName,userInfo.winCount)
 		if userInfo.winCount >= 8 then
