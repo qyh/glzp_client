@@ -403,7 +403,11 @@ function handler:test_win()
 		if not ok then
 			logger.err('requestPassRecord failed')
 		else
-			logger.warn('passRecord:%s', futil.toStr(rv))
+			if rv.passRecord and next(rv.passRecord) then
+				for k, v in pairs(rv.passRecord) do
+					logger.warn('%s', futil.toStr(v))
+				end
+			end
 		end
 		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0,
 		h.enumKeyAction.REQ_MY_CHALLENGE_INFO, 'requestMyChallengeInfo', {challengeId = v.challengeId})
