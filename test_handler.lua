@@ -47,6 +47,23 @@ end
 function REQUEST:notifyChallengePlayerChange(args)
 	logger.debug('notifyChallengePlayerChange:%s', futil.toStr(args))
 end
+function REQUEST:notifyChallengeMatchResult(args)
+	logger.debug('notifyChallengeMatchResult:%s', futil.toStr(args))
+	--[[
+	if args.result == 0 then
+		local data = {
+			deskID = args.deskID	
+		}
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.LEAVE_DESK, 
+			'leaveDesk', data)
+		if ok and rv then
+			logger.warn('leaveDesk result:%s', futil.toStr(rv))
+		else
+			logger.err('leaveDesk failed')
+		end
+	end
+	]]
+end
 function REQUEST:sendInfo(args)
 	logger.info("sendInfo:%s", futil.toStr(args.info))
 	logger.info("userInfo:%s", futil.toStr(userInfo))
@@ -222,7 +239,7 @@ function REQUEST:settlement(args)
 	end
 	]]
 	balanceCo = coroutine.running()
-	skynet.timeout(1000, function()
+	skynet.timeout(500, function()
 		if balanceCo then
 			skynet.wakeup(balanceCo)	
 			balanceCo = nil
