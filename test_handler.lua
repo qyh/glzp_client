@@ -35,6 +35,10 @@ function REQUEST:user_info(args)
 
 end
 ]]
+function REQUEST:testS2C(args)
+	logger.err('testS2C')
+	skynet.exit()
+end
 function REQUEST:challengePassRecordStart(args)
 	logger.warn('challengePassRecordStart:%s', futil.toStr(args))
 end
@@ -49,20 +53,25 @@ function REQUEST:notifyChallengePlayerChange(args)
 end
 function REQUEST:notifyChallengeMatchResult(args)
 	logger.debug('notifyChallengeMatchResult:%s', futil.toStr(args))
-	--[[
-	if args.result == 0 then
-		local data = {
-			deskID = args.deskID	
-		}
-		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.LEAVE_DESK, 
-			'leaveDesk', data)
-		if ok and rv then
-			logger.warn('leaveDesk result:%s', futil.toStr(rv))
-		else
-			logger.err('leaveDesk failed')
+	local leaveDesk = false
+	if args.result == 100 then
+		logger.err('kill self for test')
+		--skynet.exit()
+	end
+	if leaveDesk then
+		if args.result == 0 then
+			local data = {
+				deskID = args.deskID	
+			}
+			local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.LEAVE_DESK, 
+				'leaveDesk', data)
+			if ok and rv then
+				logger.warn('leaveDesk result:%s', futil.toStr(rv))
+			else
+				logger.err('leaveDesk failed')
+			end
 		end
 	end
-	]]
 end
 function REQUEST:sendInfo(args)
 	logger.info("sendInfo:%s", futil.toStr(args.info))
@@ -288,8 +297,14 @@ function handler:challengeSignIn(challengeId)
 	local suc = false
 	while true do
 		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, h.enumKeyAction.CHALLENGE_SIGN_IN, 'challengeSignIn', {
+			challengeId = challengeId,
+			itemId = 0,
+		})
+		--[[
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, h.enumKeyAction.CHALLENGE_SIGN_IN, 'challengeSignIn', {
 			challengeId = challengeId
 		})
+		]]
 		local ec = h.challengeResultCode
 		if not ok then
 			logger.err('call challenge sign in error')
@@ -305,7 +320,7 @@ function handler:challengeSignIn(challengeId)
 			elseif rv.errCode == ec.GOLD_NOT_ENOUGH or 
 				rv.errCode == ec.GOLD_LIMIT or rv.errCode == ec.ITEM_NOT_ENOUGH then
 				logger.err('%s 费用不足，退出', userInfo.nickName)
-				if not self:useRedeemCode("1213") then    --内网兑换码
+				if not self:useRedeemCode("999") then    --内网兑换码
 					if not self:useRedeemCode("987") then --beta兑换码
 						skynet.exit()
 						break
