@@ -17,6 +17,26 @@ local deskInfo = {}
 local REQUEST = handler.__request
 local RESPONSE = handler.__response
 local balanceCo = nil
+--所有吃牌序列
+local allSequence = {
+	{12,17,20},
+	{11,12,13},
+	{12,13,14},
+	{13,14,15},
+	{14,15,16},
+	{15,16,17},
+	{17,18,19},
+	{18,19,20},
+	{2,7,10},
+	{1,2,3},
+	{2,3,4},
+	{3,4,5},
+	{4,5,6},
+	{5,6,7},
+	{6,7,8},
+	{7,8,9},
+	{8,9,10},
+}
 --[[
 function REQUEST:user_info(args)
     logger.debug("REQUEST:user_info %s", futil.toStr(args))
@@ -37,7 +57,11 @@ end
 ]]
 function REQUEST:testS2C(args)
 	logger.err('testS2C')
-	skynet.exit()
+	--skynet.exit()
+	handler:challengeSignIn(self.challengeId)
+end
+function REQUEST:notifyUseProtectTicket(args)
+	logger.warn('notifyUseProtectTicket:%s', futil.toStr(args))
 end
 function REQUEST:challengePassRecordStart(args)
 	logger.warn('challengePassRecordStart:%s', futil.toStr(args))
@@ -112,7 +136,7 @@ function REQUEST:setHandCards(args)
 	local handCards = args.handCards
 	deskInfo.handCards = {} 
 	for i=1, 21 do
-		deskInfo[i] = 0
+		deskInfo.handCards[i] = 0
 	end
 	for k, v in pairs(handCards) do
 		deskInfo.handCards[v] = (deskInfo.handCards[v] or 0) + 1
@@ -133,12 +157,81 @@ end
 function REQUEST:cancelAct(data)
 	logger.debug('cancelAct:%s', futil.toStr(data))
 end
+--获取最臭的一张牌
+function handler:getSmellyCard(handCards)
+	local function hasSquence(cardID, handCards)
+		for k, seq in pairs(allSequence) do
+			local inSeq = false
+			local hasSeq = true
+			for _, id in pairs(seq) do
+				if id == cardID then
+					inSeq = true
+					break
+				end
+			end
+			if inSeq then
+				for _, id in pairs(seq) do
+					if cardID ~= id then
+						if handCards[id] ~= 1 then
+							hasSeq = false
+							break
+						end
+					end
+				end
+			end
+			if inSeq and hasSeq then
+				return true
+			end
+		end
+		return false
+	end
+	local piv = 10
+	local smellyID = nil
+	for i=1, 20 do 
+		local cardID = i
+		local num = handCards[i]
+		if num == 1 then
+			if cardID <= piv then
+				--小写数字的牌
+				if handCards[cardID + piv] ~= 2 and hasSquence(cardID, handCards) == false then
+					smellyID = cardID
+					break
+				end
+			else
+				--大写数字的牌
+				if handCards[cardID - piv] ~= 2 and hasSquence(cardID, handCards) == false then
+					smellyID = cardID
+					break
+				end
+			end
+		end
+	end
+	return smellyID
+end
 function REQUEST:notifyPlayCard(args)
 	logger.debug('notifyPlayCard:%s', futil.toStr(args))
 	logger.debug('cur handCards:%s', futil.toStr(deskInfo.handCards))
 	deskInfo.msgTag = args.msgTag
 	local succ = false
 	local tmpNum = 0 
+	local smellyCardID = handler:getSmellyCard(deskInfo.handCards)
+	if smellyCardID then
+		logger.warn('smellyCardID:%s', smellyCardID)
+		local ok, rv = handler:playCard({
+			cardId = smellyCardID,
+			msgTag = deskInfo.msgTag,
+			deskID = deskInfo.deskID
+		})
+		if ok and rv.isLegal > 0 then
+			logger.warn('play smellyCard:%s success', smellyCardID)
+			deskInfo.handCards[smellyCardID] = deskInfo.handCards[smellyCardID] - 1
+			succ = true
+		else
+			logger.err('play smellyCard:%s failed', smellyCardID)
+		end
+	else
+		logger.err('smellyCardID nil')
+	end
 	while not succ do
 		tmpNum = tmpNum + 1
 		if tmpNum > 3 then
@@ -174,14 +267,46 @@ function REQUEST:notifyPlayCard(args)
 		logger.err('out card failed')
 	end
 end
-
+function handler:getEatDetail(cardID, handCards)
+	for k, seq in pairs(allSequence) do
+		local inSeq = false
+		local hasSeq = true
+		for _, id in pairs(seq) do
+			if cardID == id then
+				inSeq = true
+				break
+			end
+		end
+		if inSeq then
+			for _, id in pairs(seq) do
+				if cardID ~= id then
+					if handCards[id] ~= 1 then
+						hasSeq = false
+						break
+					end
+				else
+					if handCards[id] ~= 0 then
+						hasSeq = false
+						break
+					end
+				end
+			end
+		end
+		if inSeq and hasSeq then
+			return seq
+		end
+	end
+	return nil
+end
 function REQUEST:notifySelect(args)
 	logger.info('notifySelect:%s', futil.toStr(args))
 	deskInfo.msgTag = args.msgTag
 	local actionId = gd.ACT_PRI.DISCARD
 	local cardId = args.cardId
 	local actName = args.actName
+	local eatDetail = nil 
 	if actName then
+		local done = false
 		for k, v in pairs(actName) do
 			if v == gd.ACT_PRI.HU or v == gd.ACT_PRI.BUMP or v == gd.ACT_PRI.SWEEP_PASS
 				or v == gd.ACT_PRI.SWEEP_ALL_H or v == gd.ACT_PRI.SWEEP_ALL_D 
@@ -193,6 +318,21 @@ function REQUEST:notifySelect(args)
 						deskInfo.handCards[id] = deskInfo.handCards[id] + 1
 					end
 				end
+				done = true
+				break
+			end
+		end
+		if not done then
+			for k, v in pairs(actName) do
+				if v == gd.ACT_PRI.EAT then
+					logger.warn('notifySelect EAT:%s', futil.toStr(args))
+					logger.warn('curhandCards:%s', futil.toStr(deskInfo.handCards))
+					eatDetail = handler:getEatDetail(cardId, deskInfo.handCards)
+					if eatDetail then
+						actionId = v
+						break
+					end
+				end
 			end
 		end
 	end
@@ -201,9 +341,18 @@ function REQUEST:notifySelect(args)
 		cardId = cardId,
 		msgTag = deskInfo.msgTag,
 		deskID = deskInfo.deskID,
+		details = eatDetail,
 	})
 	if ok then
 		logger.debug('requestAction res:%s', futil.toStr(rv))
+		if eatDetail and next(eatDetail) then
+			logger.warn('Eat card:%s success,seq:%s', cardId, futil.toStr(eatDetail))
+			for _, id in pairs(eatDetail) do
+				if id ~= cardId then
+					deskInfo.handCards[id] = deskInfo.handCards[id] - 1
+				end
+			end
+		end
 	else
 		logger.warn('requestAction failed')
 	end
@@ -219,6 +368,9 @@ function REQUEST:notifyProtectSteps(args)
 		balanceCo = nil
 	end
 end
+function REQUEST:RelieveMsg(args)
+	logger.warn('RelieveMsg:%s', futil.toStr(args))
+end
 function REQUEST:settlement(args)
 	logger.debug('settlement:%s', futil.toStr(args))
 	skynet.call('.test_many_client', 'lua', 'gaming', self.id, false)
@@ -230,7 +382,7 @@ function REQUEST:settlement(args)
 		if v.agentId == self.agentId then
 			userInfo.winCount = v.winInfo
 			goldChange = v.goldChange
-			logger.debug('goldCoin:%s, goldChange:%s', v.goldCoin, v.goldChange)
+			logger.debug('goldCoin:%s, goldChange:%s, winCount:%s', v.goldCoin, v.goldChange, v.winInfo)
 		end
 	end
 	--[[
@@ -247,6 +399,14 @@ function REQUEST:settlement(args)
 		})
 	end
 	]]
+	if userInfo.winCount == 8 then
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.NEXT_CHALLENGE_STAGE, 'nextChallengeStage', {
+			challengeId=self.challengeId
+		})
+		if ok then
+			logger.err('nextChallengeStage:%s', futil.toStr(rv))
+		end
+	end
 	balanceCo = coroutine.running()
 	skynet.timeout(500, function()
 		if balanceCo then
@@ -263,6 +423,10 @@ function REQUEST:settlement(args)
 			})
 			if ok then
 				logger.err('overchallenge:%s', futil.toStr(rv))
+			end
+			local ok, seasonInfo = self:getChallengeInfo()
+			if ok and seasonInfo then
+				logger.debug('latest seasonInfo:%s', futil.toStr(seasonInfo))
 			end
 		else
 			if userInfo.winCount < 8 then
@@ -300,11 +464,10 @@ function handler:challengeSignIn(challengeId)
 			challengeId = challengeId,
 			itemId = 0,
 		})
-		--[[
 		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, h.enumKeyAction.CHALLENGE_SIGN_IN, 'challengeSignIn', {
-			challengeId = challengeId
+			challengeId = challengeId,
+			itemId = 0,
 		})
-		]]
 		local ec = h.challengeResultCode
 		if not ok then
 			logger.err('call challenge sign in error')
@@ -320,11 +483,9 @@ function handler:challengeSignIn(challengeId)
 			elseif rv.errCode == ec.GOLD_NOT_ENOUGH or 
 				rv.errCode == ec.GOLD_LIMIT or rv.errCode == ec.ITEM_NOT_ENOUGH then
 				logger.err('%s 费用不足，退出', userInfo.nickName)
-				if not self:useRedeemCode("999") then    --内网兑换码
-					if not self:useRedeemCode("987") then --beta兑换码
-						skynet.exit()
-						break
-					end
+				if not (self:useRedeemCode("999") and self:useRedeemCode('987')) then    --内网兑换码
+					skynet.exit()
+					break
 				end
 			elseif rv.errCode == ec.INVALID_STATE then
 				local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=challengeId})
@@ -409,8 +570,12 @@ function handler:test_win()
 	logger.debug('challengeInfo:%s', futil.toStr(seasonInfo))
 	if not self.isSignIn then 
 		local v = seasonInfo
-		---4.0 内容
 		--[[
+		local res = self:request(h.enumEndPoint.ROOM_CHALLENGE, 0, 
+		h.enumKeyAction.REQ_USE_PROTECT_TICKET, 'challengeUseProtectTicket', {itemId=1958, num=1})
+		logger.err('res:%s', futil.toStr(res))
+		]]
+		---4.0 内容
 		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
 		h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
 		if ok then
@@ -431,11 +596,12 @@ function handler:test_win()
 			logger.err('myPassRecord: failed')
 		end
 		local ok,rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
-		h.enumKeyAction.REQ_PASS_RECORD, 'requestPassRecord', {challengeId = v.challengeId, startIndex=1, count=10})
+		h.enumKeyAction.REQ_PASS_RECORD, 'requestPassRecord', {challengeId = v.challengeId, startIndex=1, count=10, selectDate=nil})
 		if not ok then
 			logger.err('requestPassRecord failed')
 		else
 			if rv.passRecord and next(rv.passRecord) then
+				logger.warn('passRecord count:%s', rv.passCount)
 				for k, v in pairs(rv.passRecord) do
 					logger.warn('%s', futil.toStr(v))
 				end
@@ -448,7 +614,28 @@ function handler:test_win()
 		else
 			logger.warn('mychallenge info:%s', futil.toStr(rv))
 		end
-		]]
+
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0,
+		h.enumKeyAction.REQ_MY_CHALLENGE_INFO, 'requestMyChallengeAward', {challengeId = v.challengeId})
+		if not ok then
+			logger.err('request my challenge award faield')
+		else
+			logger.warn('myChallengeAward:%s', futil.toStr(rv))
+		end
+		local ok,rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
+		h.enumKeyAction.REQ_PASS_RECORD, 'requestChallengeMaster', {challengeId = v.challengeId, startIndex=1, count=10, selectDate=nil})
+		if not ok then
+			logger.err('requestChallengeMaster failed')
+		else
+			logger.warn('challengeMaster:%s', futil.toStr(rv))
+			if rv.passRecord and next(rv.passRecord) then
+				for k, v in pairs(rv.passRecord) do
+					logger.warn('challengeMaster %s', futil.toStr(v))
+				end
+			else
+				logger.err('requestChallengeMaster return nil')
+			end
+		end
 		---4.0 内容 end
 		if self:challengeSignIn(v.challengeId) then
 			return

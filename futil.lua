@@ -1090,6 +1090,10 @@ function futil.get_cell_by_factor(fac)
 	end
 	return ret
 end
+function futil.handle_error(e)
+	--从第2层堆栈开始打印出错信息
+	return debug.traceback(coroutine.running(), tostring(e), 2)
+end
 
 return futil
 

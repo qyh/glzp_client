@@ -109,7 +109,14 @@ end
 function handler:on_request(name, args, response)
 	local f = self.__request[name]
 	local r
-	if f then r = f(self, args) end
+	if f then 
+		local ok, res = xpcall(f, futil.handle_error, self, args)
+		if not ok then
+			logger.err('%s', tostring(res))
+		else
+			r = res --f(self, args) 
+		end
+	end
 	if not response then return end
 	return response(r)
 end
