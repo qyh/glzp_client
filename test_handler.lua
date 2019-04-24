@@ -125,6 +125,7 @@ function handler:setup(param)
     assert(param)
     g_param = param
     self.openid = "robot"..self.id
+	self.challengeId = tonumber(param.challengeId)
 end
 
 function handler:_cheat()
@@ -495,7 +496,7 @@ function handler:challengeSignIn(challengeId)
 					logger.debug('keepStage:%s', futil.toStr(rv))
 				end
 			else
-				logger.err('challengeSignIn failed:%s', futil.toStr(rv))
+				logger.err('challengeSignIn failed:%s,nickName:%s', futil.toStr(rv), userInfo.nickName)
 				self.isSignIn = false
 			end
 		end
@@ -537,7 +538,7 @@ end
 function handler:getChallengeInfo()
 	local succ = false
 	local rv = nil
-	tryTimes = 0
+	local tryTimes = 0
 	while not succ do
 		local ok, seasonInfo = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
 			h.enumKeyAction.GET_CHALLENGE_SEASON_MESSAGE, 'getChallengeSeasonMessage')
@@ -545,10 +546,18 @@ function handler:getChallengeInfo()
 			logger.err('getChallengeInfo failed')
 		end
 		if seasonInfo and next(seasonInfo) and seasonInfo.result == 0 and seasonInfo.seasonMessage then
-			self.challengeId = seasonInfo.seasonMessage[1].challengeId
-			succ = true
-			rv = seasonInfo.seasonMessage[1]
-			break
+			logger.warn('allSeason:%s', futil.toStr(seasonInfo.seasonMessage))
+			for k, v in pairs(seasonInfo.seasonMessage) do
+				if self.challengeId == v.challengeId then
+					rv = v
+					succ = true
+					break
+				end
+			end
+			if not rv then
+				rv = seasonInfo.seasonMessaage[1]
+				succ = true
+			end
 		else
 			logger.err('getChallengeInfo failed:%s', futil.toStr(seasonInfo))
 		end
@@ -567,6 +576,7 @@ function handler:test_win()
 	if not ok then
 		return false
 	end
+	--self.isSignIn = true
 	logger.debug('challengeInfo:%s', futil.toStr(seasonInfo))
 	if not self.isSignIn then 
 		local v = seasonInfo
