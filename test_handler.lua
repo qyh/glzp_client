@@ -555,7 +555,7 @@ function handler:getChallengeInfo()
 				end
 			end
 			if not rv then
-				rv = seasonInfo.seasonMessaage[1]
+				rv = seasonInfo.seasonMessage[1]
 				succ = true
 			end
 		else
