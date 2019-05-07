@@ -6,7 +6,7 @@ require "skynet.manager"
 
 skynet.start(function()
 	skynet.newservice('logservice')
-	skynet.newservice("test_many_clients")
+	skynet.newservice("client_service")
 	logger.info("client started")
 	skynet.exit()
 end)

@@ -2,7 +2,7 @@ local skynet = require "skynet"
 require "skynet.manager"
 local client = require "client"
 local logger = require "logger"
-local json = require "json"
+local json = require "cjson"
 
 local id, svaddr, handler, param = ...
 assert(id)
@@ -22,8 +22,10 @@ end
 
 local function start()
 	-- open client
+	logger.debug('client.open')
 	local cl = client.open(svaddr, function (...) return client_handler:on_request(...), true end, 
 		is_encrypt, key_secret, id)
+	logger.debug('client.open return:%s', cl)
 	if not cl then 
 		logger.warn("open client fail, id = %s", id)
 		return skynet.exit() 

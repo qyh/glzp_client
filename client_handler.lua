@@ -1,12 +1,12 @@
 local skynet = require "skynet"
 local logger = require "logger"
 local json = require "json"
-require "tostring"
+require "utils.tostring"
 require "utils.functions"
-local futil = require "futil"
-local ct = require "common_lib"
-local h = require "head_file"
-local hs = require "headfile_server"
+local futil = require "utils.futil"
+local ct = require "glzp.common_lib"
+local h = require "glzp.head_file"
+local hs = require "glzp.headfile_server"
 
 local appver = skynet.getenv("appver") or "1.1.4.0"
 local login_channel = skynet.getenv("login_channel") or "LKLoadTest"
@@ -20,6 +20,7 @@ local function response_function(ctx)
 		if not ctx or not ctx.co then return end
 		ctx.resp = resp
 		skynet.wakeup(ctx.co)
+		ctx.co = nil
 	end
 end
 
@@ -67,7 +68,7 @@ function handler:login(param)
 		userName = openid,
 		thirdToken = password,
 		thirdPlatformID = h.thirdPlatformID.Zipai,
-		version = param.appver,
+		version = param.appver or "0.0.0.0",
 		deviceID = h.deviceID.PC,
 		extraData = nil,
 		timestamp = os.time(),
@@ -75,12 +76,14 @@ function handler:login(param)
 		newSpreader = "",
 	}	
 	local r = self:request(h.enumEndPoint.LOGIN_SERVER, 0, h.enumKeyAction.AUTH, 'auth', data)
-	if r.authResult == 0 then
+	if r and r.authResult == 0 then
 		self.auth = r
 		skynet.fork(heartbeat, self)
+		logger.info("login finish, id = %s", self.id)
+	else
+		logger.err('login timeout')
+		skynet.exit()
 	end
-	--logger.info('auth result:%s', futil.toStr(r))
-	logger.info("login finish, id = %s", self.id)
 end
 
 
@@ -102,6 +105,14 @@ function handler:request(dst, module, action, name, args, nonblock)
 		ctx.co = nil
 		return false
 	end
+	-- break after 30 sec no response from server
+	local co = coroutine.running()
+	skynet.timeout(3000, function()
+		if ctx.co then
+			ctx.co = nil
+			skynet.wakeup(co)
+		end
+	end)
 	skynet.wait()
 	return ctx.resp
 end
@@ -128,8 +139,9 @@ function handler:main(id, cl, param)
 	-- setup request handler
 	self:setup(param)
 	-- login
-
+	logger.info('begin login...')
 	self:login(param)
+	logger.info('login end')
 	-- select mode
 	-- run test
 	self:run()

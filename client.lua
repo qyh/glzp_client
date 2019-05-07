@@ -4,12 +4,12 @@ local logger = require "logger"
 local md5 = require "md5"
 local socketdriver = require "socketdriver"
 local sproto = require "sproto"
-local proto = require "proto"
+local proto = require "glzp.proto"
 local ok, socket = pcall(require, "socket")
-local futil = require "futil"
-local ct = require "common_lib"
-local h = require "head_file"
-local hs = require "headfile_server"
+local futil = require "utils.futil"
+local ct = require "glzp.common_lib"
+local h = require "glzp.head_file"
+local hs = require "glzp.headfile_server"
 
 local const require "const"
 local host = sproto.new(proto.s2c):host "package"
@@ -21,7 +21,8 @@ client.__index = client
 local function raw_recv_package(sock)
 	local header_data = socket.read(sock, 2)
 	if not header_data then
-		error("recv no header data, maybe disconnect")
+		--error("recv no header data, maybe disconnect")
+		logger.err("recv no header data, maybe disconnect")
 	end
 	local sz = socket.header(header_data)
 	return socket.read(sock, sz)
@@ -108,7 +109,9 @@ local function dispatch_msg(self, msg)
 		local name, args, response = t[2], t[3], t[4]
 		logger.info('REQUEST:%s', name)
 		if self.__request then
-			return self.__request(name, args, response_function(self, response))
+			--return self.__request(name, args, response_function(self, response))
+			--not response server
+			return self.__request(name, args)
 		end
 	else
 		assert(type == "RESPONSE")

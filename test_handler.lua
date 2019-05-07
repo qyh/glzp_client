@@ -1,11 +1,11 @@
 local skynet = require "skynet"
-local futil = require "futil"
+local futil = require "utils.futil"
 local handler = require "client_handler"
 local logger = require "logger"
-local ct = require "common_lib"
-local h = require "head_file"
-local hs = require "headfile_server"
-local json = require "glzp.json"
+local ct = require "glzp.common_lib"
+local h = require "glzp.head_file"
+local hs = require "glzp.headfile_server"
+local json = require "cjson"
 local gd = require "glzp.gamedata"
 
 local g_param
@@ -62,6 +62,17 @@ function REQUEST:testS2C(args)
 end
 function REQUEST:notifyUseProtectTicket(args)
 	logger.warn('notifyUseProtectTicket:%s', futil.toStr(args))
+	local res = self:request(h.enumEndPoint.ROOM_CHALLENGE, 0, 
+	h.enumKeyAction.REQ_USE_PROTECT_TICKET, 'challengeUseProtectTicket', 
+	{itemId=1958, num=1, challengeId = args.challengeId})
+	if (res and res.result == 0) then
+		logger.warn('useProtectTicket success')
+	else
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.SEND_OVER_CHALLENGE, 'sendOverChallenge', {
+			challengeId=args.challengeId
+		})
+		handler:challengeSignIn(args.challengeId)
+	end
 end
 function REQUEST:challengePassRecordStart(args)
 	logger.warn('challengePassRecordStart:%s', futil.toStr(args))
@@ -102,7 +113,7 @@ function REQUEST:sendInfo(args)
 	logger.info("userInfo:%s", futil.toStr(userInfo))
 	logger.debug('user %s game start', userInfo.nickName)
 	self.gameStart = true
-	skynet.call('.test_many_client', 'lua', 'gaming', self.id, true)
+	skynet.call('.client_service', 'lua', 'gaming', self.id, true)
 	for k, v in pairs(args.info) do
 		if v.userID == userInfo.userID then
 			deskInfo = {}
@@ -119,6 +130,18 @@ function REQUEST:flushGoods(args)
 end
 function REQUEST:challengeOver(args)
 	logger.err('challengeOver:%s,%s', userInfo.nickName, futil.toStr(args))
+	skynet.sleep(500)
+	if args.winCount == self.conf.totalWinCount then
+		if futil.randomWheel(100, g_param.rechallengeOnPass) then
+			logger.warn('%s rechallengeOnPass OK', userInfo.userID)
+			handler:challengeSignIn(self.challengeId)
+		end
+	else
+		if futil.randomWheel(100, g_param.rechallengeOnFail) then
+			logger.warn('%s rechallengeOnFail OK', userInfo.userID)
+			handler:challengeSignIn(self.challengeId)
+		end
+	end
 end
 
 function handler:setup(param)
@@ -364,9 +387,17 @@ function REQUEST:doAction(args)
 end
 function REQUEST:notifyProtectSteps(args)
 	logger.warn('notifyProtectSteps:%s', futil.toStr(args))
-	if balanceCo then
-		skynet.wakeup(balanceCo)
-		balanceCo = nil
+	skynet.sleep(500)
+	if futil.randomWheel(100, g_param.keepSteps) then
+		logger.warn('%s keepSteps randomWheel OK', userInfo.userID)
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=args.challengeId})
+		if not (ok and rv and next(rv) and rv.result == 0) then
+			logger.debug('keepChallengeStage failed:%s', futil.toStr(rv))
+			self:challengeSignIn(self.challengeId)	
+		else
+			logger.debug('keepChallengeStage:%s', futil.toStr(rv))
+			self:challengeSignIn(self.challengeId)	
+		end
 	end
 end
 function REQUEST:RelieveMsg(args)
@@ -374,11 +405,12 @@ function REQUEST:RelieveMsg(args)
 end
 function REQUEST:settlement(args)
 	logger.debug('settlement:%s', futil.toStr(args))
-	skynet.call('.test_many_client', 'lua', 'gaming', self.id, false)
+	skynet.call('.client_service', 'lua', 'gaming', self.id, false)
 	self.gameStart = false
 	self.isSignIn = false
 	skynet.sleep(100)
 	local goldChange = 0
+	local oldWinCount = userInfo.winCount
 	for k, v in pairs(args.agentInfo) do
 		if v.agentId == self.agentId then
 			userInfo.winCount = v.winInfo
@@ -386,28 +418,8 @@ function REQUEST:settlement(args)
 			logger.debug('goldCoin:%s, goldChange:%s, winCount:%s', v.goldCoin, v.goldChange, v.winInfo)
 		end
 	end
-	--[[
-	local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.SEND_OVER_CHALLENGE, 'sendOverChallenge', {
-		challengeId=self.challengeId
-	})
-	if ok then
-		logger.err('overchallenge:%s', futil.toStr(rv))
-
-		skynet.sleep(100)
-
-		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, h.enumKeyAction.CHALLENGE_SIGN_IN, 'challengeSignIn', {
-			challengeId = self.challengeId
-		})
-	end
-	]]
-	if userInfo.winCount == 8 then
-		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.NEXT_CHALLENGE_STAGE, 'nextChallengeStage', {
-			challengeId=self.challengeId
-		})
-		if ok then
-			logger.err('nextChallengeStage:%s', futil.toStr(rv))
-		end
-	end
+	local maxStage = self.conf.totalWinCount
+	
 	balanceCo = coroutine.running()
 	skynet.timeout(500, function()
 		if balanceCo then
@@ -418,19 +430,15 @@ function REQUEST:settlement(args)
 	skynet.wait()
 	if args.huAgentId == self.agentId then
 		logger.debug('user:%s win:%s', userInfo.nickName,userInfo.winCount)
-		if userInfo.winCount >= 8 then
+		if userInfo.winCount >= maxStage then
 			local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.SEND_OVER_CHALLENGE, 'sendOverChallenge', {
 				challengeId=self.challengeId
 			})
 			if ok then
 				logger.err('overchallenge:%s', futil.toStr(rv))
 			end
-			local ok, seasonInfo = self:getChallengeInfo()
-			if ok and seasonInfo then
-				logger.debug('latest seasonInfo:%s', futil.toStr(seasonInfo))
-			end
 		else
-			if userInfo.winCount < 8 then
+			if userInfo.winCount < maxStage then
 				local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.NEXT_CHALLENGE_STAGE, 'nextChallengeStage', {
 					challengeId=self.challengeId
 				})
@@ -444,16 +452,9 @@ function REQUEST:settlement(args)
 			end
 		end
 	elseif goldChange < 0 then
-		logger.debug('user:%s lose winCount:%s', userInfo.nickName,userInfo.winCount)
-		local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=self.challengeId})
-		if not (ok and rv and next(rv) and rv.result == 0) then
-			self:challengeSignIn(self.challengeId)	
-		else
-			logger.debug('keepChallengeStage:%s', futil.toStr(rv))
-			self:challengeSignIn(self.challengeId)	
-		end
+		logger.debug('user:%s lose winCount:%s', userInfo.nickName, oldWinCount)
 	else
-		logger.debug('user:%s not lose and not win, winCount:%s', userInfo.nickName,userInfo.winCount)
+		logger.debug('user:%s not lose and not win, winCount:%s', userInfo.nickName,oldWinCount)
 		self:challengeSignIn(self.challengeId)	
 	end
 end
@@ -483,12 +484,13 @@ function handler:challengeSignIn(challengeId)
 				break
 			elseif rv.errCode == ec.GOLD_NOT_ENOUGH or 
 				rv.errCode == ec.GOLD_LIMIT or rv.errCode == ec.ITEM_NOT_ENOUGH then
-				logger.err('%s 费用不足，退出', userInfo.nickName)
-				if not (self:useRedeemCode("999") and self:useRedeemCode('987')) then    --内网兑换码
+				if not self:useRedeemCode(g_param.redeemCode) then    --内网兑换码
+					logger.err('%s 费用不足，退出', userInfo.nickName)
 					skynet.exit()
 					break
 				end
 			elseif rv.errCode == ec.INVALID_STATE then
+				logger.err('invalid state, try keepChallengeStage:%s', userInfo.userID)
 				local ok, rv = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE, 0, h.enumKeyAction.KEEP_CHALLENGE_STAGE, 'keepChallengeStage',{challengeId=challengeId})
 				if not ok then
 					logger.err('keepStage failed:%s', futil.toStr(rv))
@@ -510,6 +512,8 @@ function handler:challengeSignIn(challengeId)
 				logger.err('%s exit', userInfo.nickName)
 				--it will be restart after 30s
 				skynet.exit()
+			elseif curTime - self.signInTime > 30 then
+				handler:challengeSignIn(self.challengeId)
 			end
 		end
 
@@ -528,9 +532,9 @@ function handler:useRedeemCode(code)
 	}
 	local ok, rv = pcall(self.request, self, h.enumEndPoint.LOBBY_SERVER,0, h.enumKeyAction.USE_REDEEM_CODE, 'useRedeemCode', data)
 	if ok and rv and next(rv) and rv.result == 0 then
-		logger.warn('useRedeemCode success:%s', futil.toStr(rv))
+		logger.warn('useRedeemCode success:%s,user:%s', futil.toStr(rv), userInfo.userID)
 	else
-		logger.err('useRedeemCode error:%s', futil.toStr(rv))
+		logger.err('useRedeemCode error:%s,user:%s', futil.toStr(rv), userInfo.userID)
 		ok = false
 	end
 	return ok
@@ -546,10 +550,11 @@ function handler:getChallengeInfo()
 			logger.err('getChallengeInfo failed')
 		end
 		if seasonInfo and next(seasonInfo) and seasonInfo.result == 0 and seasonInfo.seasonMessage then
-			logger.warn('allSeason:%s', futil.toStr(seasonInfo.seasonMessage))
+			--logger.warn('allSeason:%s', futil.toStr(seasonInfo.seasonMessage))
 			for k, v in pairs(seasonInfo.seasonMessage) do
 				if self.challengeId == v.challengeId then
 					rv = v
+					self.conf = v
 					succ = true
 					break
 				end
@@ -562,7 +567,8 @@ function handler:getChallengeInfo()
 			logger.err('getChallengeInfo failed:%s', futil.toStr(seasonInfo))
 		end
 		tryTimes = tryTimes + 1
-		if tryTimes > 5 then
+		if tryTimes > 100 then
+			skynet.exit()
 			break
 		end
 		logger.err('try getChallengeInfo again...')
@@ -576,8 +582,10 @@ function handler:test_win()
 	if not ok then
 		return false
 	end
-	--self.isSignIn = true
+	self.isSignIn = true
 	logger.debug('challengeInfo:%s', futil.toStr(seasonInfo))
+	local stepInfo = self:request(h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 0, 'getProtectStepsInfo', {})
+	logger.err('sepInfo:%s', futil.toStr(stepInfo))
 	if not self.isSignIn then 
 		local v = seasonInfo
 		--[[
@@ -586,6 +594,7 @@ function handler:test_win()
 		logger.err('res:%s', futil.toStr(res))
 		]]
 		---4.0 内容
+		--[[
 		local ok, record = pcall(self.request, self, h.enumEndPoint.ROOM_CHALLENGE_MG, 0, 
 		h.enumKeyAction.REQ_MY_CHALLENGE_RECORD, 'requestMyChallengeRecord', {challengeId = v.challengeId})
 		if ok then
@@ -646,6 +655,7 @@ function handler:test_win()
 				logger.err('requestChallengeMaster return nil')
 			end
 		end
+		]]
 		---4.0 内容 end
 		if self:challengeSignIn(v.challengeId) then
 			return
@@ -679,7 +689,59 @@ function handler:kclub_test()
 		end
 	end
 end
-
+function handler:syncItems()
+	local ok, rv = pcall(self.request, self, h.enumEndPoint.LOBBY_SERVER, 0,
+		h.enumKeyAction.GET_ALL_ITEMS, 'synAllItems', {})
+	if ok and rv then
+		logger.debug('allItems:%s', futil.toStr(rv))
+		local itemIds = {}
+		self.items = {}
+		for k, v in pairs(rv.items) do
+			table.insert(itemIds, v.itemId)
+			self.items[v.itemId] = v	
+		end
+		--synItemConf
+		local ok, rv = pcall(self.request, self, h.enumEndPoint.LOBBY_SERVER, 0, 
+			h.enumKeyAction.GET_ITEM_CONF, 'synItemConf', {itemIds=itemIds})
+		if ok and rv then
+			--logger.warn('itemConf:%s', futil.toStr(rv))
+			for _, itemInfo in pairs(rv.itemConfs) do
+				if self.items[itemInfo.itemId] then 
+					for k, v in pairs(itemInfo) do
+						self.items[itemInfo.itemId][k] = v
+					end
+				end
+			end
+			--logger.info('items:%s', futil.toStr(self.items))
+		end
+		--getPayData
+		if self.items[2270] then
+			local itemInfo = self.items[2270]
+			ok, rv = pcall(self.request, self, h.enumEndPoint.LOBBY_SERVER, 0,
+				h.enumKeyAction.GET_MALL_INFO, 'getMallInfo', {mallID=itemInfo.mallID})
+			if ok and rv then
+				logger.warn('mallInfo:%s', futil.toStr(rv))
+			else
+				logger.warn('mallInfo failed:%s', futil.toStr(rv))
+			end
+			----------------------------------
+			ok, rv = pcall(self.request, self, h.enumEndPoint.MALL, 0,
+				h.enumKeyAction.GET_PAY_DATA, 'getPayData', 
+				{mallID=itemInfo.mallID, num=1, userGoodsID=itemInfo.userGoodsID,kind=3})
+			if ok and rv then
+				if rv.result ~= 0 then
+					logger.warn('getPayData failed:%s,%s', futil.toStr(rv), futil.toStr(itemInfo))
+				else
+					logger.warn('getPayData success:%s', futil.toStr(rv))
+				end
+			else
+				logger.err('getPayData error')
+			end
+		end
+	else
+		logger.err('synAllItems failed:%s', userInfo.userID)
+	end
+end
 function handler:run()
     local ctx = self.ctx
 
@@ -689,6 +751,7 @@ function handler:run()
 		userInfo = self.auth.userInfo_
 		logger.info('auth data:%s', futil.toStr(authData))
         logger.info("TODO: 登陆成功,在这里运行你的第一行代码")
+		self:syncItems()
 		local ok, rv = pcall(self.request, self, h.enumEndPoint.LOBBY_SERVER, 0, 
 			h.enumKeyAction.GET_PLAYER_STATUS, 'getPlayerStatus')
 		if ok then
@@ -705,7 +768,7 @@ function handler:run()
 					logger.warn('comeBackGame:%s', futil.toStr(data))
 					local ok, r = pcall(json.decode, data.strData)
 					if ok then
-						skynet.call('.test_many_client', 'lua', 'gaming', self.id, true)
+						skynet.call('.client_service', 'lua', 'gaming', self.id, true)
 						self.agentId = tonumber(r.selfID)
 						self.gameStart = true
 						self.isSignIn = true
